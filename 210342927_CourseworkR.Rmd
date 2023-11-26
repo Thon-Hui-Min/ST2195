@@ -1,0 +1,426 @@
+---
+title: "ST2195 Coursework"
+author: "Thon Hui Min"
+date: "28/01/2023"
+output: 
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Project Setup
+
+## Library
+
+```{r}
+# Import library
+library (dplyr)
+library (ggplot2)
+library (skimr)
+library (tidyr)
+library(scales)
+```
+
+## Read CSV
+
+```{r}
+# Read Csv
+flight_2000 <- read.csv("2000.csv", header = TRUE)
+flight_2001 <- read.csv("2001.csv", header = TRUE)
+
+airport <- read.csv("airports.csv")
+carriers <- read.csv("carriers.csv")
+plane_data <- read.csv("plane-data.csv", na.strings = "")
+```
+
+## Bind flights
+
+```{r}
+flights <- rbind(flight_2000, flight_2001)
+```
+
+## Data Summary
+
+```{r}
+summary(flights)
+```
+
+```{r}
+summary(plane_data)
+```
+
+# Question 1
+
+When is the best time of day, day of the week, and time of year to fly to minimise delays?
+
+```{r}
+#Introduce new variable total delay as delay
+flights <- flights %>% 
+  mutate(delay = ArrDelay + DepDelay) %>% 
+  filter(delay >= 0) %>% 
+  arrange(delay)
+
+head(flights)
+```
+
+## Q1.1
+
+Best Time of day
+
+```{r}
+#Time
+best_time <- flights %>% 
+  filter(delay > 0) %>% 
+  group_by(CRSDepTime) %>% 
+  summarise(avg_delay = mean(delay, na.rm = TRUE)) %>% 
+  arrange(avg_delay)
+
+best_time
+```
+
+```{r}
+## Plot
+best_time %>% 
+ ggplot(aes(x = CRSDepTime, y = avg_delay, colour = CRSDepTime)) + geom_line() + labs(title = 'Average Flight Delay by Time', x = 'Departure Time', y = "Average delay (in minutes)")
+```
+
+```{r}
+## Timing with lowest delay
+lowest_time <- best_time %>% 
+  slice(which.min(avg_delay)) %>% 
+  pull(CRSDepTime)
+
+cat("The time with the lowest average flight delay is", lowest_time)
+```
+
+Hence, the best time of day to fly is 05:19 for the least delay.
+
+## Q1.2
+
+Best Day of the week to fly
+
+```{r}
+#Day
+best_day <- flights %>% 
+  filter(delay > 0) %>% 
+  group_by(DayOfWeek) %>% 
+  summarise(avg_delay = mean(delay, na.rm = TRUE)) %>% 
+  arrange(avg_delay)
+best_day
+```
+
+```{r}
+# Graph
+best_day %>% 
+  mutate(DayOfWeek = factor(DayOfWeek, levels = c(1, 2, 3, 4, 5, 6, 7),
+  labels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))) %>% 
+  ggplot() + 
+  geom_col(aes(x = DayOfWeek, y = avg_delay, fill = 'Red'), width = 0.5) + 
+  labs(title = 'Average Flight Delay by Day', x = 'Day of Week', y = 'Average Delay (in minutes)') + 
+  theme(legend.position = "none") + 
+  scale_fill_manual(values = "#0369a0")
+```
+
+```{r}
+# Day with lowest average delay
+lowest_day <- best_day %>% 
+  slice(which.min(avg_delay)) %>% 
+  pull(DayOfWeek)
+
+cat("The day of the week with the lowest average flight delay is", weekdays(as.Date(lowest_day, origin = "1970-01-04")), ".")
+```
+
+Hence, the best day of the week to fly is: Tuesday
+
+## Q1.3
+
+Best month of the year to fly
+
+```{r}
+# Month
+best_month <- flights %>% 
+  filter(delay >= 0) %>% 
+  group_by(Month) %>% 
+  summarise(avg_delay = mean(delay, na.rm = TRUE)) %>% 
+  arrange(avg_delay)
+```
+
+```{r}
+head(best_month)
+```
+
+```{r}
+# Bar Graph
+ggplot(best_month, aes(x = Month, y = avg_delay)) +
+  geom_col(fill = "#0369a0", width = 0.5) +
+  labs(title = "Average Flight Delay by Month", x = "Month", y = "Average Delay (in minutes)") +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  theme_minimal() 
+```
+
+```{r}
+# Month with lowest delay
+lowest_month <- best_month %>% 
+  filter(avg_delay == min(avg_delay)) %>% 
+  pull(Month)
+
+cat("The month with the lowest average flight delay is", month.name[lowest_month], ".")
+```
+
+Hence the best month of the year to fly is October.
+
+# Question 2
+
+Do older planes suffer more delays?
+
+```{r}
+#Remove all missing values
+plane_data <- na.omit(plane_data)
+head(plane_data)
+```
+
+```{r}
+#Getting the manufacturing year based on TailNum on flights data frame
+year_planes <- flights %>% 
+    left_join(plane_data, by = c("TailNum" = "tailnum")) %>% 
+    group_by(year, TailNum) %>% 
+    summarise(avg_delay = mean(delay)) %>% 
+    filter(avg_delay > 0, year != "None" & year != "NA" & year != "0000") %>% 
+    arrange(year)
+```
+
+```{r}
+year_planes
+```
+
+```{r}
+# Scatter plot
+year_planes %>% 
+  ggplot() + aes(x = year, y = avg_delay, color = factor(year)) + geom_point(lwd = 2) + scale_x_discrete(breaks = seq(1956, 2007, by = 1)) + labs(title = "Number of Delays by Manufacturing Years", x = "Manufacturing Year", y = "Average Delay (in minutes)") + theme(legend.position = "none") + theme(axis.text.x = element_text(angle = 90))
+```
+
+# Question 3
+
+How does the number of people flying between different locations change over time?
+
+```{r}
+# Question 3
+num_flights <- flights %>% 
+  filter(delay > 0, flights$DepTime <= 2359, flights$CRSDepTime <= 2359,    flights$ArrTime <= 2359, flights$CRSArrTime <= 2359, !is.na(Year), !is.na(Month)) %>%
+  group_by(Year, Month) %>%
+  count()
+
+flightstats <- flights %>% 
+  filter(delay > 0) %>% 
+  group_by(Year) %>% 
+  count(Year)
+
+flightstats
+```
+
+```{r}
+num_flights
+```
+
+```{r}
+# Bar Graph
+ggplot(num_flights, aes(x = Month, y = n, fill = factor(Year))) + 
+  geom_bar(position = position_dodge(width = 0.9), stat = "identity") + 
+  scale_x_continuous(breaks = seq(1, 12, by = 1), labels = month.abb) + 
+  scale_y_continuous(labels = scales::comma) + 
+  labs(title = "Flights over the years", x = "Month", y = "Count", fill = 'Year') + 
+  scale_fill_manual(values = c("#e24a33", "#348abd")) +
+  theme(legend.position = "bottom") +
+  geom_bar(data = num_flights %>% filter(Year == 2008),
+           aes(x = Month, y = n, fill = "2008"), 
+           position = position_dodge(width = 0.4), stat = "identity") +
+  geom_bar(data = num_flights %>% filter(Year == 2009),
+           aes(x = Month, y = n, fill = "2009"), 
+           position = position_dodge(width = 0.4), stat = "identity")
+```
+
+# Question 4
+
+Can you detect cascading failures as delays in one airport create delays in others?
+
+```{r}
+#Correlation coefficient between 2 variables
+cor(flights$DepDelay, flights$ArrDelay, method = 'pearson', use = 'complete.obs')
+```
+
+```{r}
+# Define custom color palette
+my_colors <- c("#0072B2", "#E74C3C")
+
+# Create scatter plot with regression line
+ggplot(flights, aes(x = DepDelay, y = ArrDelay, color = factor(Year))) +
+  geom_point(alpha = 0.2) +
+  stat_smooth(method = "lm", formula = y ~ x, se = FALSE, size = 1.2, color = my_colors[2]) +
+  scale_color_manual(values = my_colors) +
+  labs(title = "Arrival Delay vs. Departure Delay",
+       x = "Departure Delay (minutes)",
+       y = "Arrival Delay (minutes)",
+       color = "Year") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 20),
+        axis.title = element_text(size = 16),
+        axis.text = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14))
+```
+
+# Question 5
+
+Use the available variables to construct a model that predicts delays.
+
+```{r}
+#Skim the data frame for missing values
+skim(flights)
+```
+
+```{r}
+#Drop missing values
+flights_cleaned <- flights %>% 
+  drop_na(DepTime, ArrTime, AirTime, ArrDelay, DepDelay) %>% 
+  select (Month, DayOfWeek, CRSDepTime, CRSArrTime, ActualElapsedTime, DepDelay, Distance, ArrDelay) %>% 
+  filter(CRSDepTime <= 2359, CRSArrTime <= 2359)
+```
+
+## Import Library
+
+```{r}
+#Machine learning preparation
+library(mlr3)
+library(mlr3learners)
+library(mlr3pipelines)
+
+#Ridge regression
+library(glmnet)
+library(paradox)
+```
+
+## Set Up
+
+```{r}
+# Task
+task <- TaskRegr$new(id='flights', backend=flights_cleaned, target='ArrDelay')
+measure <- msr('regr.mse')
+```
+
+```{r}
+# Learner
+learner_lm <- lrn('regr.lm')
+```
+
+```{r}
+#Set seed and conduct train test split to get MSE score of Linear regression Model
+set.seed(1)
+gr_lm <- po(learner_lm)
+glrn_lm <- GraphLearner$new(gr_lm)
+train_set <- sample(task$nrow, 0.7 * task$nrow) 
+test_set <- setdiff(seq_len(task$nrow), train_set)
+glrn_lm$train(task, row_ids = train_set)
+lm_score <- glrn_lm$predict(task, row_ids = test_set)$score() 
+```
+
+## Ridge Regressopm
+
+```{r}
+# Ridge Regression
+lnr_ridge <- lrn('regr.glmnet')
+lnr_ridge$param_set$values <-list(alpha= 0, lambda = 0.3)
+gr_ridge <- po(lnr_ridge)
+glrn_ridge <- GraphLearner$new(gr_ridge)
+glrn_ridge$train(task,row_ids = train_set)
+ridge_score <- glrn_ridge$predict(task, row_ids = train_set)$score()
+```
+
+```{r}
+#Skim cleaned flights data frame
+skim(flights_cleaned)
+```
+
+## Lasso
+
+```{r}
+#Lasso
+lnr_lasso <- lrn('regr.glmnet')
+lnr_lasso$param_set$values <-list(alpha= 1, lambda = 0.3)
+gr_lasso <- po(lnr_lasso)
+glrn_lasso <- GraphLearner$new(gr_lasso)
+glrn_lasso$train(task,row_ids = train_set)
+lasso_score <- glrn_lasso$predict(task, row_ids = train_set)$score()
+```
+
+## Random Forest Model
+
+```{r}
+# Import Library
+library(ranger)
+library(mlr3tuning)
+library(mlr3learners)
+```
+
+```{r}
+lrn_rf <- lrn('regr.ranger')
+lrn_rf$param_set$values <- list(min.node.size = 4)
+gr_rf <- po(lrn_rf)
+glrn_rf <- GraphLearner$new(gr_rf)
+
+tune_ntrees <- ParamSet$new(list(ParamInt$new('regr.ranger.num.trees', lower = 10, upper = 20)))
+
+# Create a tuner and terminator object
+tuner <- TunerRandomSearch$new()
+terminator <- trm("evals", n_evals = 10)
+
+# Define resampling with 70% train and 30% test split
+resampling <- rsmp("holdout", ratio = 0.7)
+
+AT_rf <- AutoTuner$new(learner = glrn_rf, resampling = resampling, measure = measure, search_space = tune_ntrees, terminator = terminator, tuner = tuner)
+
+# Train using AutoTuner
+AT_rf$train(task)
+
+# Evaluate the model
+prediction <- AT_rf$predict(task)
+
+# Calculate the score
+rf_score <- prediction$score(measure)
+```
+
+```{r}
+print(lm_score)
+print(ridge_score)
+print(lasso_score)
+print(rf_score)
+```
+
+
+## Graph
+
+```{r}
+# Create a data frame containing the scores
+model_scores <- data.frame(
+  Model = c("Linear Regression", "Ridge Regression", "Lasso Regression", "Random Forest"),
+  MSE = c(lm_score, ridge_score, lasso_score, rf_score)
+)
+
+# Load the ggplot2 library for plotting
+library(ggplot2)
+
+# Create a bar chart comparing the MSE scores of each model
+ggplot(model_scores, aes(x = Model, y = MSE, fill = Model)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = comma(MSE)), vjust = -0.5) +
+  scale_y_continuous(labels = comma, limits = c(0, max(model_scores$MSE) * 1.1)) +
+  theme_minimal() +
+  labs(title = "Comparison of Regression Algorithms", x = "Model", y = "Mean Squared Error") +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 0, vjust = 0.5)) +
+  scale_x_discrete(limits = model_scores$Model)
+
+```
